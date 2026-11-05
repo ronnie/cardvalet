@@ -1,0 +1,78 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: macos-latest
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Require a plain version tag
+        id: ver
+        run: |
+          tag="${GITHUB_REF_NAME}"
+          if ! printf '%s' "$tag" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "tag $tag is not vMAJOR.MINOR.PATCH, no release"
+            exit 0
+          fi
+          echo "skip=false" >> "$GITHUB_OUTPUT"
+          echo "version=${tag#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Stamp version
+        if: steps.ver.outputs.skip != 'true'
+        run: |
+          /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString ${{ steps.ver.outputs.version }}" Info.plist
+          /usr/libexec/PlistBuddy -c "Set :CFBundleVersion ${{ steps.ver.outputs.version }}" Info.plist
+
+      - name: Build
+        if: steps.ver.outputs.skip != 'true'
+        run: ./build.sh
+
+      - name: Self-test
+        if: steps.ver.outputs.skip != 'true'
+        run: .build/release/CardValet --selftest
+
+      - name: Zip
+        if: steps.ver.outputs.skip != 'true'
+        run: ditto -c -k --keepParent build/CardValet.app "CardValet-${{ steps.ver.outputs.version }}.zip"
+
+      - name: Release notes
+        if: steps.ver.outputs.skip != 'true'
+        run: |
+          tag="${GITHUB_REF_NAME}"
+          prev=$(git tag -l 'v*' --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | grep -v "^${tag}$" | head -1 || true)
+          {
+            if [ -n "$prev" ]; then
+              git log --pretty=format:'- %s' "${prev}..${tag}"
+            else
+              git log --pretty=format:'- %s' "$tag"
+            fi
+            printf '\n\n'
+            echo "This build is ad-hoc signed and not notarized. macOS may block it the first time. Right-click CardValet.app, choose Open, then Open."
+            echo
+            echo "CardValet needs Accessibility access. If it is already listed, remove it with the minus button, add it again, and switch it on."
+            echo
+            echo "OpenSC is required to check the card: /usr/local/bin/pkcs11-tool and /Library/OpenSC/lib/opensc-pkcs11.so."
+          } > notes.md
+
+      - name: Publish
+        if: steps.ver.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            "CardValet-${{ steps.ver.outputs.version }}.zip" \
+            --title "${{ steps.ver.outputs.version }}" \
+            --latest \
+            --notes-file notes.md
