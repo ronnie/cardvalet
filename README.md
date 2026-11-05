@@ -9,7 +9,7 @@ When you log in to a DoD website that asks for your card, such as a .mil site, t
 1. Chrome asks you to pick a certificate. CardValet clicks OK.
 2. macOS asks for your card PIN. CardValet types the PIN you saved and presses OK.
 
-Before it types anything, CardValet checks the card. If the card is locked, missing or low on PIN retries, it stops and tells you instead of risking a lockout.
+When OpenSC is installed, CardValet checks the card before it types. If the card is locked, missing, or low on PIN retries, it stops and tells you instead of risking a lockout. Without OpenSC, CardValet still types the PIN and does not warn you. A wrong PIN can lock the card.
 
 ## Read this first
 
@@ -22,7 +22,7 @@ Before it types anything, CardValet checks the card. If the card is locked, miss
 ## Requirements
 
 - macOS 13 or later and Google Chrome.
-- OpenSC installed, with `/usr/local/bin/pkcs11-tool` and `/Library/OpenSC/lib/opensc-pkcs11.so`. CardValet uses it only to read the card's lock status.
+- OpenSC, so CardValet can check the card before it types. Without OpenSC, CardValet still types your PIN and does not warn you. A wrong PIN can lock the card. Install the [latest release of OpenSC](https://github.com/OpenSC/OpenSC/releases/latest), or run `brew install opensc`.
 
 ## Set up
 
@@ -186,7 +186,6 @@ Run these from the folder that contains CardValet.app. Read the card status with
 
 ```
 CardValet.app/Contents/MacOS/CardValet --check-card
-pkcs11-tool --module /Library/OpenSC/lib/opensc-pkcs11.so -L
 ```
 
 Preview the alerts without touching the card:

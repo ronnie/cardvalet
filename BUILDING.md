@@ -6,7 +6,7 @@ Developer notes. These are not part of the in-app Help.
 
 A wrong PIN counts against the card, and the card locks after a few failures. Keep these rules.
 
-- Do not type a PIN, and do not press OK, unless `cardSafe()` has just returned ok. Locked, final try, low retry count, no card, a tool failure, and the 5 second timeout all mean type nothing.
+- Do not type a PIN, and do not press OK, unless `cardSafe()` has just returned ok. Locked, final try, low retry count, no card, a tool failure, and the 5 second timeout all mean type nothing. The one exception is a missing OpenSC install: the check is skipped and the PIN is typed.
 - `judge` reads every token in the `pkcs11-tool -L` output. A healthy token listed first does not clear a locked card listed after it.
 - The PIN lives only in the login Keychain (service `cardvalet`, account `pin`). Log the character count. Never log, print, or write the PIN.
 - Do not set `AXValue` on the secure field. The field looks filled, the signature still fails, and the card can lock.
@@ -17,7 +17,7 @@ A wrong PIN counts against the card, and the card locks after a few failures. Ke
 ## Requirements
 
 - macOS 13 or later, Xcode command line tools.
-- OpenSC (`pkcs11-tool`) for the card status check.
+- OpenSC (`pkcs11-tool`) for the card status check. Optional. Without it the check is skipped and the PIN is typed. Official package or `brew install opensc`.
 
 ## Build
 

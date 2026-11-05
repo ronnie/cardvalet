@@ -5,8 +5,8 @@
 <key>CFBundleName</key><string>CardValet</string>
 <key>CFBundleExecutable</key><string>CardValet</string>
 <key>CFBundlePackageType</key><string>APPL</string>
-<key>CFBundleShortVersionString</key><string>0.1.0</string>
-<key>CFBundleVersion</key><string>0.1.0</string>
+<key>CFBundleShortVersionString</key><string>0.1.1</string>
+<key>CFBundleVersion</key><string>0.1.1</string>
 <key>CFBundleIconFile</key><string>CardValet</string>
 <key>LSUIElement</key><true/>
 </dict></plist>

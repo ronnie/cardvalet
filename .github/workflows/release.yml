@@ -63,7 +63,7 @@ jobs:
             echo
             echo "CardValet needs Accessibility access. If it is already listed, remove it with the minus button, add it again, and switch it on."
             echo
-            echo "OpenSC is required to check the card: /usr/local/bin/pkcs11-tool and /Library/OpenSC/lib/opensc-pkcs11.so."
+            echo "OpenSC is optional, from the official package or Homebrew (brew install opensc). Without it the card check is skipped."
           } > notes.md
 
       - name: Publish

@@ -55,6 +55,19 @@ func hostAllowed(_ host: String, _ allowed: [String]) -> Bool {
     allowed.map(normalizeHost).contains { !$0.isEmpty && (host == $0 || host.hasSuffix("." + $0)) }
 }
 
+/// Official package, Homebrew (Apple Silicon and Intel), then MacPorts. First pair where both files exist.
+/// Declared above the top-level checks: those run in source order, before a later global would be initialized.
+let openSCCandidates = [
+    ("/usr/local/bin/pkcs11-tool", "/Library/OpenSC/lib/opensc-pkcs11.so"),
+    ("/opt/homebrew/bin/pkcs11-tool", "/opt/homebrew/lib/opensc-pkcs11.so"),
+    ("/usr/local/bin/pkcs11-tool", "/usr/local/lib/opensc-pkcs11.so"),
+    ("/opt/local/bin/pkcs11-tool", "/opt/local/lib/opensc-pkcs11.so"),
+]
+func resolveOpenSC(_ exists: (String) -> Bool) -> (tool: String, module: String)? {
+    guard let pair = openSCCandidates.first(where: { exists($0.0) && exists($0.1) }) else { return nil }
+    return (tool: pair.0, module: pair.1)
+}
+
 if CommandLine.arguments.contains("--check-card") { // read-only: prints what the pre-typing card check sees
     let r = cardSafe(); print("ok=\(r.ok) reason='\(r.reason)' detail='\(r.detail)'"); exit(r.ok ? 0 : 1)
 }
@@ -84,6 +97,20 @@ if CommandLine.arguments.contains("--selftest") {
     precondition(!hostAllowed("anything.com", []) && !hostAllowed("a.com", [""]))
     precondition(normalizeHost(" *.Example.COM ") == "example.com" && normalizeHost(".dso.mil") == "dso.mil")
     precondition(validHostEntry("dso.mil") && validHostEntry("a-b.example.co.uk") && !validHostEntry("mil") && !validHostEntry("a b.com") && !validHostEntry("-a.com") && !validHostEntry("a..com"))
+    let pkg = ("/usr/local/bin/pkcs11-tool", "/Library/OpenSC/lib/opensc-pkcs11.so")
+    let brewArm = ("/opt/homebrew/bin/pkcs11-tool", "/opt/homebrew/lib/opensc-pkcs11.so")
+    let brewIntel = ("/usr/local/bin/pkcs11-tool", "/usr/local/lib/opensc-pkcs11.so")
+    let ports = ("/opt/local/bin/pkcs11-tool", "/opt/local/lib/opensc-pkcs11.so")
+    func present(_ pairs: [(String, String)]) -> (String) -> Bool {
+        let files = Set(pairs.flatMap { [$0.0, $0.1] })
+        return { files.contains($0) }
+    }
+    precondition(resolveOpenSC(present([pkg]))?.module == pkg.1)
+    precondition(resolveOpenSC(present([brewArm]))?.module == brewArm.1)
+    precondition(resolveOpenSC(present([brewIntel]))?.module == brewIntel.1)
+    precondition(resolveOpenSC(present([ports]))?.module == ports.1)
+    precondition(resolveOpenSC(present([pkg, brewIntel]))?.module == pkg.1) // package wins when both are installed
+    precondition(resolveOpenSC { _ in false } == nil)
     print("selftest ok"); exit(0)
 }
 
@@ -123,9 +150,11 @@ func log(_ m: String) {
 }
 
 /// Read-only card status check (never sends a PIN). Fails closed, including on a 5s timeout.
+/// A missing OpenSC install returns `opensc not found` and does not run a tool. The caller types anyway.
 func cardSafe() -> (ok: Bool, reason: String, detail: String) {
-    let p = Process(); p.executableURL = URL(fileURLWithPath: "/usr/local/bin/pkcs11-tool")
-    p.arguments = ["--module", "/Library/OpenSC/lib/opensc-pkcs11.so", "-L"]
+    guard let paths = resolveOpenSC({ FileManager.default.fileExists(atPath: $0) }) else { return (false, "opensc not found", "") }
+    let p = Process(); p.executableURL = URL(fileURLWithPath: paths.tool)
+    p.arguments = ["--module", paths.module, "-L"]
     let out = Pipe(); p.standardOutput = out; p.standardError = Pipe()
     let done = DispatchSemaphore(value: 0); p.terminationHandler = { _ in done.signal() }
     guard (try? p.run()) != nil else { log("cardSafe: pkcs11-tool failed to run"); return (false, "Card status unreadable (pkcs11-tool failed).", "") }
@@ -139,7 +168,7 @@ func cardSafe() -> (ok: Bool, reason: String, detail: String) {
     return r
 }
 
-final class App: NSObject, NSApplicationDelegate, NSMenuItemValidation {
+final class App: NSObject, NSApplicationDelegate, NSMenuItemValidation, WKNavigationDelegate {
     let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
     var enabled = true
     var busy = false
@@ -230,6 +259,7 @@ final class App: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     @objc func showHelp() {
         if helpWindow == nil {
             let web = WKWebView(frame: .zero)
+            web.navigationDelegate = self
             if let page = Bundle.main.url(forResource: "help", withExtension: "html"), let dir = Bundle.main.resourceURL {
                 web.loadFileURL(page, allowingReadAccessTo: dir) // file access so the screenshots load
             } else { web.loadHTMLString("<p>help.html not found in the app bundle.</p>", baseURL: nil) }
@@ -238,6 +268,14 @@ final class App: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             helpWindow = w
         }
         NSApp.activate(ignoringOtherApps: true); helpWindow?.makeKeyAndOrderFront(nil)
+    }
+    func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction, decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
+        if navigationAction.navigationType == .linkActivated, let url = navigationAction.request.url, let scheme = url.scheme?.lowercased(), scheme == "https" || scheme == "http" {
+            NSWorkspace.shared.open(url)
+            decisionHandler(.cancel)
+            return
+        }
+        decisionHandler(.allow)
     }
     var pinRows: [(secure: NSSecureTextField, plain: NSTextField)] = []
     @objc func togglePinVisibility(_ b: NSButton) {
@@ -406,7 +444,8 @@ final class App: NSObject, NSApplicationDelegate, NSMenuItemValidation {
               let field = find(win, { str($0, "AXSubrole") == "AXSecureTextField" }),
               let ok = find(win, { str($0, "AXRole") == "AXButton" && str($0, "AXDescription") == "OK" }) else { return }
         let card = cardSafe()
-        guard card.ok else { cardAlert(card.reason, detail: card.detail); return }
+        if card.reason == "opensc not found" { log("cardSafe: opensc not found, card check skipped") }
+        else if !card.ok { cardAlert(card.reason, detail: card.detail); return }
         guard Keychain.has() else { noPinAlert(); return }
         busy = true
         fetchPin { [self] pin in

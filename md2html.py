@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Tiny Markdown to HTML for README.md: #/##/### headings, - and 1. lists, ``` blocks, > notes, ![alt](img) figures, **bold**, `code`. Anything fancier is not supported."""
+"""Tiny Markdown to HTML for README.md: #/##/### headings, - and 1. lists, ``` blocks, > notes, ![alt](img) figures, **bold**, `code`, [label](https://...) links. Anything fancier is not supported."""
 import html, re, struct, sys
 
 def png_width(path):
@@ -12,7 +12,8 @@ def png_width(path):
 def inline(t):
     t = html.escape(t)
     t = re.sub(r"`([^`]+)`", r"<code>\1</code>", t)
-    return re.sub(r"\*\*([^*]+)\*\*", r"<b>\1</b>", t)
+    t = re.sub(r"\*\*([^*]+)\*\*", r"<b>\1</b>", t)
+    return re.sub(r"\[([^\]]+)\]\((https://[^)\s]+)\)", r'<a href="\2">\1</a>', t)
 
 out, lst, code = [], None, False
 def close():
@@ -52,4 +53,5 @@ h3{font-size:15px;margin:22px 0 4px}
 figure{margin:12px 0}img{max-width:100%;height:auto;border-radius:10px;border:1px solid rgba(128,128,128,.3)}
 figcaption{font-size:12px;opacity:.65;margin-top:4px}
 blockquote{margin:12px 0;padding:8px 14px;border-left:3px solid #d29a1a;background:rgba(210,154,26,.12);border-radius:0}
+a{color:inherit}
 </style>""" + "\n".join(out))
